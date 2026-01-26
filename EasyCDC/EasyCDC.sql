@@ -85,7 +85,15 @@ create table EasyCDC.Config (
 	SuffixKind nvarchar(20) not null
 		constraint EasyCDC_Config_SuffixKind_DF default 'ISO8601'
 		constraint EasyCDC_Config_SuffixKind_CK
-		check (SuffixKind in ('UnixEpoch', 'ISO8601'))
+		check (SuffixKind in ('UnixEpoch', 'ISO8601')),
+	CaptureJobHandling nvarchar(20) not null
+		constraint EasyCDC_Config_CaptureJobHandling_DF default 'ADD_START'
+		constraint EasyCDC_Config_CaptureJobHandling_CK
+		check (CaptureJobHandling in ('DROP_ADD_START', 'ADD_START', 'START')),
+	CleanupJobHandling nvarchar(20) not null
+		constraint EasyCDC_Config_CleanupJobHandling_DF default 'ADD_START'
+		constraint EasyCDC_Config_CleanupJobHandling_CK
+		check (CleanupJobHandling in ('DROP_ADD_START', 'ADD_START', 'START'))
 );
 go
 
@@ -124,6 +132,10 @@ create table EasyCDC.SourceTable (
 	IndexName sysname null,
 	FilegroupName sysname null,
 	AllowPartitionSwitch bit not null,
+	ColumnHandling nvarchar(20) not null
+		constraint EasyCDC_SourceTable_ColumnHandling_DF default 'ALL'
+		constraint EasyCDC_SourceTable_ColumnHandling_CK
+		check (ColumnHandling in ('ALL', 'SPECIFIED', 'ALL_EXCEPT_SPECIFIED')),
 
 	constraint UC_EasyCDC_SourceTable_PK
 	primary key clustered (SchemaName, TableName)
@@ -184,14 +196,18 @@ begin
 		@BlockAddColumn bit = 0,
 		@BlockDropColumn bit = 0,
 		@DisableCdcOnUnconfiguredTables bit = 0,
-		@SuffixKind nvarchar(20) = N'';
+		@SuffixKind nvarchar(20) = N'',
+		@CaptureJobHandling nvarchar(20) = N'',
+		@CleanupJobHandling nvarchar(20) = N'';
 
 	select
 		@HasConfigRow = 1,
 		@BlockAddColumn = a.BlockAddColumn,
 		@BlockDropColumn = a.BlockDropColumn,
 		@DisableCdcOnUnconfiguredTables = a.DisableCdcOnUnconfiguredTables,
-		@SuffixKind = a.SuffixKind
+		@SuffixKind = a.SuffixKind,
+		@CaptureJobHandling = a.CaptureJobHandling,
+		@CleanupJobHandling = a.CleanupJobHandling
 	from EasyCDC.Config a;
 
 	if @HasConfigRow = 0 throw 20240520, N'No configuration row in table [EasyCDC].[Config].', 1;
@@ -336,8 +352,7 @@ end catch
 			ErrorMessage nvarchar(max) not null,
 			ErrorLine int not null,
 			ErrorSeverity int not null,
-			ErrorState int not null,
-			ErrorKind nvarchar(10) not null default 'RUNTIME'
+			ErrorState int not null
 		);
 
 		--select * from cdc.change_tables;
@@ -625,6 +640,30 @@ end catch
 
 		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
 		select 'drop table if exists #Error;', 0, 1;
+
+		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
+		select N'exec sys.sp_cdc_drop_job ''capture'' -- Idempotent;', 1, 1
+		where @CaptureJobHandling = 'DROP_ADD_START';
+
+		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
+		select N'exec sys.sp_cdc_add_job ''capture'' -- Idempotent;', 1, 1
+		where @CaptureJobHandling in ('DROP_ADD_START', 'ADD_START');
+
+		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
+		select N'exec sys.sp_cdc_start_job ''capture''; -- Idempotent, extended procedure might raise error (try-catch won''t work but batch and script will keep executing).', 1, 1
+		where @CaptureJobHandling in ('DROP_ADD_START', 'ADD_START', 'START');
+
+		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
+		select N'exec sys.sp_cdc_drop_job ''cleanup''; -- Idempotent', 1, 1
+		where @CleanupJobHandling = 'DROP_ADD_START';
+
+		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
+		select N'exec sys.sp_cdc_add_job ''cleanup''; -- Idempotent', 1, 1
+		where @CleanupJobHandling in ('DROP_ADD_START', 'ADD_START');
+
+		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
+		select N'exec sys.sp_cdc_start_job ''cleanup''; -- Idempotent, extended procedure might raise error (try-catch won''t work but batch and script will keep executing).', 1, 1
+		where @CleanupJobHandling in ('DROP_ADD_START', 'ADD_START', 'START');
 
 		insert into #Query (QueryOrText, IsExecutable, IsPrintable)
 		select
