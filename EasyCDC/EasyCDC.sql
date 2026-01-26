@@ -257,6 +257,7 @@ end catch
 			IsTracked bit not null,
 			IsConfigured bit not null default 0,
 			ConfiguredColumnList nvarchar(max) not null default '',
+			PrimaryKeyName sysname null,
 
 			primary key clustered (SchemaName, TableName)
 		);
@@ -270,9 +271,33 @@ end catch
 			primary key clustered (SchemaName, TableName, ColumnName)
 		);
 
+		create table #SourceTable (
+			SchemaName sysname not null,
+			TableName sysname not null,
+			CaptureInstancePrefix nvarchar(80) not null,
+			SupportsNetChanges bit not null,
+			RoleName sysname null,
+			IndexName sysname null,
+			FilegroupName sysname null,
+			AllowPartitionSwitch bit not null,
+			RoleExists bit not null default 0,
+			IndexExists bit not null default 0,
+			FilegroupExists bit not null default 0,
+
+			primary key clustered (SchemaName, TableName)
+		);
+
+		create table #SourceColumn (
+			SchemaName sysname not null,
+			TableName sysname not null,
+			ColumnName sysname not null,
+
+			primary key clustered (SchemaName, TableName, ColumnName)
+		);
+
 		create table #CaptureInstance (
-			SourceSchemaName sysname not null,
-			SourceTableName sysname not null,
+			SchemaName sysname not null,
+			TableName sysname not null,
 			CaptureInstanceName sysname not null,
 			StartLSN binary(10) null,
 			SupportsNetChanges bit not null,
@@ -281,8 +306,21 @@ end catch
 			FilegroupName sysname null,
 			CreatedDate datetime not null,
 			PartitionSwitch bit not null,
+			MatchesConfiguredColumns bit not null default 0,
+			IsConsumed bit not null default 0,
+			HasSuccessor bit not null default 0,
+			MatchesConfig bit not null default 0,
 
-			primary key clustered (SourceSchemaName, SourceTableName, CaptureInstanceName)
+			primary key clustered (SchemaName, TableName, CaptureInstanceName)
+		);
+
+		create table #CaptureColumn (
+			SchemaName sysname not null,
+			TableName sysname not null,
+			CaptureInstanceName sysname not null,
+			ColumnName sysname not null,
+
+			primary key nonclustered (SchemaName, TableName, CaptureInstanceName, ColumnName)
 		);
 
 		create table #Query (
@@ -298,7 +336,8 @@ end catch
 			ErrorMessage nvarchar(max) not null,
 			ErrorLine int not null,
 			ErrorSeverity int not null,
-			ErrorState int not null
+			ErrorState int not null,
+			ErrorKind nvarchar(10) not null default 'RUNTIME'
 		);
 
 		--select * from cdc.change_tables;
@@ -330,8 +369,8 @@ end catch
 			t.is_ms_shipped = 0;
 
 		insert into #CaptureInstance (
-			SourceSchemaName,
-			SourceTableName,
+			SchemaName,
+			TableName,
 			CaptureInstanceName,
 			StartLSN,
 			SupportsNetChanges,
@@ -354,6 +393,53 @@ end catch
 			ct.partition_switch
 		from cdc.change_tables ct;
 
+		insert into #CaptureColumn (
+			SchemaName,
+			TableName,
+			CaptureInstanceName,
+			ColumnName
+		)
+		select
+			object_schema_name(ct.source_object_id),
+			object_name(ct.source_object_id),
+			ct.capture_instance,
+			cc.column_name
+		from cdc.captured_columns cc
+		join cdc.change_tables ct on
+			ct.object_id = cc.object_id;
+
+		insert into #SourceTable (
+			SchemaName,
+			TableName,
+			CaptureInstancePrefix,
+			SupportsNetChanges,
+			RoleName,
+			IndexName,
+			FilegroupName,
+			AllowPartitionSwitch
+		)
+		select
+			st.SchemaName,
+			st.TableName,
+			st.CaptureInstancePrefix,
+			st.SupportsNetChanges,
+			st.RoleName,
+			st.IndexName,
+			st.FilegroupName,
+			st.AllowPartitionSwitch
+		from EasyCDC.SourceTable st;
+
+		insert into #SourceColumn (
+			SchemaName,
+			TableName,
+			ColumnName
+		)
+		select
+			sc.SchemaName,
+			sc.TableName,
+			sc.ColumnName
+		from EasyCDC.SourceColumn sc;
+
 		update t
 		set
 			t.IsConfigured = 1
@@ -361,11 +447,25 @@ end catch
 		where
 			exists (
 				select 1
-				from EasyCDC.SourceTable st
+				from #SourceTable st
 				where
 					t.SchemaName = st.SchemaName and
 					t.TableName = st.TableName
 			);
+
+		update t
+		set
+			t.PrimaryKeyName = d2.PrimaryKeyName
+		from #Table t
+		outer apply (select concat(quotename(t.SchemaName), '.', quotename(t.TableName))) d1(FullName)
+		outer apply (
+			select
+				kc.name as PrimaryKeyName
+			from sys.key_constraints kc
+			where
+				kc.type = 'PK' and
+				kc.parent_object_id = object_id(FullName)
+		) d2;
 
 		update c
 		set
@@ -374,7 +474,7 @@ end catch
 		where
 			exists (
 				select 1
-				from EasyCDC.SourceColumn sc
+				from #SourceColumn sc
 				where
 					c.SchemaName = sc.SchemaName and
 					c.TableName = sc.TableName and
@@ -407,9 +507,98 @@ end catch
 			outer apply (select convert(nvarchar(max), V5)) v6(V6)
 		) d1(ColumnName);
 
-		--select * from #Table;
-		--select * from #Column;
-		select * from #CaptureInstance;
+		update t
+		set
+			t.IsConsumed = 1
+		from #CaptureInstance t
+		where
+			exists (
+				select 1
+				from EasyCDC.Consumer c
+				left join EasyCDC.ConsumedCaptureInstance cci on
+					c.ConsumerName = cci.ConsumerName
+				where
+					cci.CaptureInstanceName = t.CaptureInstanceName
+			);
+
+		update t
+		set
+			t.HasSuccessor = 1
+		from #CaptureInstance t
+		where
+			exists (
+				select 1
+				from #CaptureInstance ci
+				where
+					ci.CaptureInstanceName = t.CaptureInstanceName and
+					ci.CreatedDate > t.CreatedDate
+			);
+
+		update t
+		set
+			t.MatchesConfig = 1
+		from #CaptureInstance t
+		outer apply (select convert(sysname, newid())) g(GuidVal)
+		outer apply (
+			select PrimaryKeyName
+			from #Table a
+			where
+				t.SchemaName = a.SchemaName and
+				t.TableName = a.TableName
+		) d1
+		where
+			exists (
+				select 1
+				from #SourceTable st
+				where
+					t.SchemaName = st.SchemaName and
+					t.TableName = st.TableName and
+					t.SupportsNetChanges = st.SupportsNetChanges and
+					t.PartitionSwitch = st.AllowPartitionSwitch and
+					coalesce(t.IndexName, g.GuidVal) = isnull(st.IndexName, isnull(d1.PrimaryKeyName, g.GuidVal)) and
+					isnull(t.RoleName, g.GuidVal) = isnull(st.RoleName, g.GuidVal) and
+					isnull(t.FilegroupName, g.GuidVal) = isnull(st.FilegroupName, g.GuidVal)
+			) and
+			not exists (
+				select c.ColumnName
+				from #Column c
+				where
+					c.SchemaName = t.SchemaName and
+					c.TableName = t.TableName
+					
+				except
+
+				select cc.ColumnName
+				from #CaptureColumn cc
+				where
+					cc.SchemaName = t.SchemaName and
+					cc.TableName = t.TableName and
+					cc.CaptureInstanceName = t.CaptureInstanceName
+			) and
+			not exists (
+				select cc.ColumnName
+				from #CaptureColumn cc
+				where
+					cc.SchemaName = t.SchemaName and
+					cc.TableName = t.TableName and
+					cc.CaptureInstanceName = t.CaptureInstanceName
+
+				except
+
+				select c.ColumnName
+				from #Column c
+				where
+					c.SchemaName = t.SchemaName and
+					c.TableName = t.TableName
+			);
+
+		select '' as [Table=#Table], * from #Table;
+		select '' as [Table=#Column], * from #Column;
+		select '' as [Table=#SourceTable], * from #SourceTable;
+		select '' as [Table=#SourceColumn], * from #SourceColumn;
+		select '' as [Table=#CaptureInstance], * from #CaptureInstance;
+		select '' as [Table=#CaptureColumn], * from #CaptureColumn;
+		select '' as [Table=#Error], * from #Error;
 
 		--with
 		--	SourceTable(TableId) as (
@@ -915,10 +1104,10 @@ go
 --exec EasyCDC.ApplyDesiredState @Mode = 'OutputString';
 --go
 
-exec dbo.Setup;
-go
-exec EasyCDC.ApplyDesiredState @Mode = 'Commit';
-go
+--exec dbo.Setup;
+--go
+--exec EasyCDC.ApplyDesiredState @Mode = 'Commit';
+--go
 
 --select * from EasyCDC.SourceTable;
 --select * from EasyCDC.SourceColumn;
