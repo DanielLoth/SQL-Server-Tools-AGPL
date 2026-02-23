@@ -1,7 +1,9 @@
+using System.IO;
 using System.Linq;
 
 using Microsoft.SqlServer.Dac.Deployment;
 using Microsoft.SqlServer.Dac.Model;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace UnitTest;
 
@@ -20,11 +22,15 @@ public sealed class Contributor : DeploymentPlanModifier
         var source = context.Source;
         var target = context.Target;
 
-        var ps = source.GetObjects(DacQueryScopes.UserDefined, Permission.TypeClass).ToList();
-        var pss = ps.Select(x => x.GetScript()).ToList();
+        var ps = source.GetObjects(DacQueryScopes.Default, Microsoft.SqlServer.Dac.Model.Permission.TypeClass).ToList();
+        var pss = ps.Select(x => (x.Name, x.GetScript())).ToList();
 
-        var ts = target.GetObjects(DacQueryScopes.UserDefined, Permission.TypeClass).ToList();
-        var tss = ts.Select(x => x.GetScript()).ToList();
+        var ts = target.GetObjects(DacQueryScopes.Default, Microsoft.SqlServer.Dac.Model.Permission.TypeClass).ToList();
+        var tss = ts.Select(x => (x.Name, x.GetScript())).ToList();
+
+        var parser = new TSql160Parser(false, SqlEngineType.Standalone);
+
+        var s = parser.Parse(new StringReader(tss.First().Item2), out _);
 
         _ = 1;
     }

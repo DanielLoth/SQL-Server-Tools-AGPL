@@ -26,12 +26,12 @@ public class UnitTest1
             go
             create procedure MySchema.P1 as return 0;
             go
-            grant execute on object::MySchema.P1 to U2;
+            grant execute on object::MySchema.P1 to U2 as MyUser;
             go
             """;
 
         var modelSqlV2 = """
-            create table dbo.B (Id int primary key check (Id = 1), C11 int null);
+            create table dbo.B (Id int primary key constraint CK1 check (Id = 1), C11 int null);
             go
             create user MyUser without login;
             go
@@ -41,7 +41,7 @@ public class UnitTest1
             go
             create procedure MySchema.P1 as return 0;
             go
-            grant execute on object::MySchema.P1 to U2;
+            grant execute on object::MySchema.P1 to U2 as MyUser;
             go
             """;
 
@@ -107,6 +107,8 @@ public class UnitTest1
         var p2 = Publish(packageV2, databaseName, false);
         var p2Script = p2.DatabaseScript;
         var p2Report = GetPrettyDeployReport(p2);
+
+        Extract(databaseName);
     }
 
     private static string GetPrettyDeployReport(PublishResult result)
@@ -128,6 +130,9 @@ public class UnitTest1
         var profile = GetProfile();
         profile.TargetDatabaseName = databaseName;
         profile.TargetConnectionString = connectionString;
+        profile.DeployOptions.VerifyCollationCompatibility = true;
+        profile.DeployOptions.ScriptDatabaseCollation = true;
+        profile.DeployOptions.CompareUsingTargetCollation = true;
         profile.DeployOptions.CreateNewDatabase = createNew;
 
         var publishOptions = GetPublishOptions(profile);
@@ -138,9 +143,44 @@ public class UnitTest1
         return publishResult;
     }
 
+    private static void Extract(string databaseName)
+    {
+        var connectionStringBuilder = GetConnectionStringBuilder(databaseName);
+        var connectionString = connectionStringBuilder.ConnectionString;
+
+        var outDir = new DirectoryInfo("./extract-out/");
+        if (outDir.Exists)
+        {
+            outDir.Delete(true);
+        }
+
+        if (!outDir.Exists)
+        {
+            outDir.Create();
+        }
+
+        var outFile = new FileInfo(Path.Combine(outDir.FullName, "out.dacpac"));
+
+        var options = new DacExtractOptions
+        {
+            VerifyExtraction = true,
+            IgnorePermissions = false,
+            ExtractTarget = DacExtractTarget.SchemaObjectType
+        };
+
+        var dacServices = new DacServices(connectionString);
+        dacServices.Extract(outFile.FullName, databaseName, "AppName", new Version("1.0.0.0"), extractOptions: options);
+    }
+
     private static TSqlModel GetModel(string sql)
     {
-        var model = new TSqlModel(SqlServerVersion.Sql160, new());
+        var options = new TSqlModelOptions
+        {
+            StorageType = DacSchemaModelStorageType.Memory,
+            Collation = "Latin1_General_CS_AS"
+        };
+
+        var model = new TSqlModel(SqlServerVersion.Sql160, options);
         model.AddObjects(sql);
         model.Validate();
 
