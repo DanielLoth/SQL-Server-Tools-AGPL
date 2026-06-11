@@ -63,11 +63,7 @@ drop table if exists [##SchemaName##].[##TableName##];
     declare @Query nvarchar(max);
 
     declare ForeignKeyCursor cursor local fast_forward for
-        select
-            --s.name as TableSchema,
-            --t.name as TableName,
-            --d1.ConstraintFragmentList,
-            d2.Query
+        select d2.Query
         from sys.tables t
         join sys.schemas s on t.schema_id = s.schema_id
         outer apply (
@@ -233,6 +229,18 @@ create table dbo.PostTypes (
     constraint PK_PostTypes_Id primary key clustered (Id)
 );
 go
+
+--insert into dbo.PostTypes (Type)
+--values
+--Id	Type
+--1	Question
+--2	Answer
+--3	Wiki
+--4	TagWikiExerpt
+--5	TagWiki
+--6	ModeratorNomination
+--7	WikiPlaceholder
+--8	PrivilegeWiki
 
 create table dbo.Users (
     Id int identity(1,1) not null,
