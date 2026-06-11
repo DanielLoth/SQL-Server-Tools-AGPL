@@ -22,26 +22,42 @@ public class UnitTest1
             go
             create user U2 without login;
             go
+            grant connect to MyUser;
+            go
+            grant connect to U2;
+            go
             create schema MySchema authorization MyUser;
             go
             create procedure MySchema.P1 as return 0;
             go
-            grant execute on object::MySchema.P1 to U2 as MyUser;
+            grant execute on object::MySchema.P1 to U2;
+            go
+            create procedure dbo.P2 as return 0;
+            go
+            grant execute on dbo.P2 to U2;
             go
             """;
 
         var modelSqlV2 = """
-            create table dbo.B (Id int primary key constraint CK1 check (Id = 1), C11 int null);
+            create table dbo.B (Id int primary key constraint CK1 check (Id = 1), C1 int null);
             go
             create user MyUser without login;
             go
             create user U2 without login;
             go
+            grant connect to MyUser;
+            go
+            grant connect to U2;
+            go
             create schema MySchema authorization MyUser;
             go
             create procedure MySchema.P1 as return 0;
             go
-            grant execute on object::MySchema.P1 to U2 as MyUser;
+            grant execute on object::MySchema.P1 to U2;
+            go
+            create procedure dbo.P2 as return 0;
+            go
+            grant execute on dbo.P2 to U2;
             go
             """;
 
@@ -54,13 +70,6 @@ public class UnitTest1
                 <Property Name="ParentElementName" Value="[dbo]" />
                 <Property Name="ParentElementType" Value="SqlSchema" />
                 <Property Name="NewName" Value="B" />
-              </Operation>
-              <Operation Name="Rename Refactor" Key="4b66db52-38d3-4e35-9e69-f475e1f6fc3d" ChangeDateTime="02/21/2026 11:05:23">
-                <Property Name="ElementName" Value="[dbo].[B].[C1]" />
-                <Property Name="ElementType" Value="SqlSimpleColumn" />
-                <Property Name="ParentElementName" Value="[dbo].[B]" />
-                <Property Name="ParentElementType" Value="SqlTable" />
-                <Property Name="NewName" Value="C11" />
               </Operation>
             </Operations>
             """;
@@ -108,7 +117,11 @@ public class UnitTest1
         var p2Script = p2.DatabaseScript;
         var p2Report = GetPrettyDeployReport(p2);
 
-        Extract(databaseName);
+        var p3 = Publish(packageV2, databaseName, false);
+        var p3Script = p3.DatabaseScript;
+        var p3Report = GetPrettyDeployReport(p3);
+
+        //Extract(databaseName);
     }
 
     private static string GetPrettyDeployReport(PublishResult result)
@@ -134,6 +147,7 @@ public class UnitTest1
         profile.DeployOptions.ScriptDatabaseCollation = true;
         profile.DeployOptions.CompareUsingTargetCollation = true;
         profile.DeployOptions.CreateNewDatabase = createNew;
+        profile.DeployOptions.IgnoreAuthorizer = true;
 
         var publishOptions = GetPublishOptions(profile);
 

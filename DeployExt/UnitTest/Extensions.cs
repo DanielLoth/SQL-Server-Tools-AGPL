@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Microsoft.SqlServer.Dac.Deployment;
+using Microsoft.SqlServer.Dac.Model;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace UnitTest;
 
@@ -47,4 +49,9 @@ internal static class Extensions
 
         return steps;
     }
+
+    public static string GetName(this Identifier identifier) => identifier.Value;
+    public static string GetName(this ObjectIdentifier identifier) => identifier.ToString();
+    public static string GetName(this MultiPartIdentifier identifier) => string.Join('.', identifier.Identifiers.Select(x => x.Value));
+    public static string GetName(this Microsoft.SqlServer.TransactSql.ScriptDom.Permission permission) => string.Join(' ', permission.Identifiers.Select(x => x.Value));
 }
