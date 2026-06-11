@@ -177,6 +177,11 @@ create table dbo.Comments (
 );
 go
 
+/*
+Id	Type
+1	Linked
+3	Duplicate
+*/
 create table dbo.LinkTypes (
     Id int identity(1,1) not null,
     Type varchar(50) not null,
@@ -279,6 +284,24 @@ alter table dbo.Votes add
     constraint FK_Votes_UserId foreign key (UserId) references dbo.Users (Id);
 go
 
+/*
+Id	Name
+1	AcceptedByOriginator
+2	UpMod
+3	DownMod
+4	Offensive
+5	Favorite
+6	Close
+7	Reopen
+8	BountyStart
+9	BountyClose
+10	Deletion
+11	Undeletion
+12	Spam
+13	InformModerator
+15	ModeratorReview
+16	ApproveEditSuggestion
+*/
 create table dbo.VoteTypes (
     Id int identity(1,1) not null,
     Name varchar(50) not null,
