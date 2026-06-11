@@ -127,6 +127,38 @@ go
 exec #DropAllTables;
 go
 
+/*
+Aggregating dbo.Badges from the Brent Ozar StackOverflow2013 database:
+
+select Name, count(1) as NumRows
+from dbo.Badges
+group by Name
+order by count(1) desc;
+
+Name	NumRows
+Popular Question	1286465
+Student	751807
+Editor	630271
+Scholar	594064
+Notable Question	542758
+Teacher	535840
+Supporter	450118
+Nice Answer	357470
+Yearling	324457
+Tumbleweed	317744
+Commentator	290831
+Nice Question	154689
+Critic	133284
+Enlightened	111244
+Revival	107749
+Necromancer	106301
+Famous Question	106166
+Autobiographer	105215
+Custodian	95603
+Good Answer	86967
+*/
+go
+
 create table dbo.Badges (
     Id int identity(1,1) not null,
     Name nvarchar(40) not null,
