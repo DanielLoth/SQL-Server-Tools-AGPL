@@ -20,6 +20,18 @@ go
 use master;
 go
 
+if loginproperty('DbOwnerLogin', 'PasswordHash') is null
+begin
+	create login DbOwnerLogin with
+		password = 'apsfghasiyjh298ajdsgsGDSHl@',
+		check_expiration = off,
+		check_policy = off;
+end
+go
+
+alter login DbOwnerLogin disable;
+go
+
 declare @DropDatabase bit = 0;
 
 if @DropDatabase = 1
@@ -35,6 +47,8 @@ go
 if db_id('StackOverflowFun') is null
 begin
 	exec('create database StackOverflowFun;');
+	exec('alter authorization on database::StackOverflowFun to DbOwnerLogin;');
+	--exec('alter database StackOverflowFun set trustworthy on;');
 end
 go
 
@@ -60,7 +74,6 @@ end
 go
 
 alter role SQLAgentUserRole add member StackOverflowFunDeployer;
---alter role db_datareader add member StackOverflowFunDeployer;
 go
 
 use StackOverflowFun;
@@ -389,6 +402,21 @@ alter table dbo.Votes add
 	constraint FK_Votes_PostId foreign key (PostId) references dbo.Posts (Id),
 	constraint FK_Votes_UserId foreign key (UserId) references dbo.Users (Id);
 go
+
+--create or alter procedure dbo.P1
+--with execute as caller
+--as
+--begin
+--	set nocount, xact_abort on;
+--end
+--go
+
+--select * from sys.procedures;
+--select * from sys.all_sql_modules;
+--go
+
+--select name, is_db_chaining_on from sys.databases;
+
 
 set noexec off;
 go
