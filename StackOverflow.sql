@@ -102,10 +102,10 @@ go
 execute as login = 'StackOverflowFunDeployer';
 go
 
-exec msdb..sp_help_job;
+--exec msdb..sp_help_job;
 go
 
-select suser_sname(), user_name();
+--select suser_sname(), user_name();
 go
 
 create or alter procedure #DropAllTables
@@ -417,6 +417,72 @@ go
 
 --select name, is_db_chaining_on from sys.databases;
 
+drop procedure if exists dbo.ExecP1;
+go
+drop procedure if exists U1.P1;
+go
+drop schema if exists U1;
+go
+
+drop user if exists U1;
+go
+
+create user U1 without login;
+go
+
+create schema U1 authorization U1;
+go
+
+create procedure U1.P1
+as
+begin
+	select * from sys.objects;
+end
+go
+
+if cert_id('Permission$ViewDatabaseState') is not null
+begin
+	drop certificate Permission$ViewDatabaseState;
+end
+go
+
+create certificate Permission$ViewDatabaseState
+	encryption by password = 'something'
+	with subject = 'something';
+go
+
+create user Permission$ViewDatabaseState from certificate Permission$ViewDatabaseState;
+go
+
+grant control on database::StackOverflowFun to Permission$ViewDatabaseState;
+go
+
+exec('U1.P1') as user = 'U1';
+go
+
+add signature
+	to U1.P1
+	by certificate Permission$ViewDatabaseState
+	with password = 'something';
+go
+
+alter certificate Permission$ViewDatabaseState remove private key;
+go
+
+exec('U1.P1') as user = 'U1';
+go
+
+drop procedure if exists U1.P1;
+go
+
+drop user if exists Permission$ViewDatabaseState;
+go
+
+if cert_id('Permission$ViewDatabaseState') is not null
+begin
+	drop certificate Permission$ViewDatabaseState;
+end
+go
 
 set noexec off;
 go
